@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import java.security.Key;
 import java.util.Date;
 
-@Component
+//@Component
 public class JwtUtil {
 
     private final String SECRET = "SEGREDO_SUPER_FORTE_E_COMPATIVEL_COM_256_BITS_1234567890";
