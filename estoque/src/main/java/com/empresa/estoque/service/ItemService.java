@@ -13,10 +13,10 @@ import com.empresa.estoque.repository.ItemRepository;
 import com.empresa.estoque.repository.SubcategoriaItemRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
+
 import java.util.List;
 
 @Service
-
 public class ItemService {
 
     private final SubcategoriaItemRepository subcatRepo;
@@ -24,7 +24,12 @@ public class ItemService {
     private final ItemRepository itemRepo;
     private final EstoqueRepository estRepo;
 
-    public ItemService(ItemRepository itemRepo, EstoqueRepository estRepo, CategoriaItemRepository categoriaRepo, SubcategoriaItemRepository subcatRepo) {
+    public ItemService(
+            ItemRepository itemRepo,
+            EstoqueRepository estRepo,
+            CategoriaItemRepository categoriaRepo,
+            SubcategoriaItemRepository subcatRepo
+    ) {
         this.itemRepo = itemRepo;
         this.estRepo = estRepo;
         this.categoriaRepo = categoriaRepo;
@@ -46,6 +51,9 @@ public class ItemService {
                     .orElseThrow(() -> new IllegalArgumentException("Subcategoria não encontrada: " + dto.subcategoriaId()));
         }
 
+        // ✅ Estoque mínimo padrão
+        Integer estoqueMinimo = (dto.estoqueMinimo() != null ? dto.estoqueMinimo() : 5);
+
         Item item = Item.builder()
                 .sku(dto.sku())
                 .descricao(dto.descricao())
@@ -53,6 +61,7 @@ public class ItemService {
                 .subcategoria(subcat)
                 .unidade(dto.unidade())
                 .custoUnitario(dto.custoUnitario())
+                .estoqueMinimo(estoqueMinimo) // ✅ AQUI
                 .fornecedor(dto.fornecedor())
                 .localizacao(dto.localizacao())
                 .observacao(dto.observacao())
@@ -74,13 +83,11 @@ public class ItemService {
         return toDTO(item, est);
     }
 
-
     public List<ItemResponseDTO> listar() {
         return itemRepo.findByAtivoTrue().stream()
                 .map(it -> toDTO(it, estRepo.findByItem(it).orElseThrow()))
                 .toList();
     }
-
 
     public List<ItemResponseDTO> buscar(String termo) {
         return itemRepo.findByDescricaoContainingIgnoreCaseOrSkuContainingIgnoreCase(termo, termo)
@@ -142,6 +149,9 @@ public class ItemService {
         if (dto.observacao() != null) item.setObservacao(dto.observacao());
         if (dto.ativo() != null) item.setAtivo(dto.ativo());
 
+        // ✅ atualiza estoque mínimo do item
+        if (dto.estoqueMinimo() != null) item.setEstoqueMinimo(dto.estoqueMinimo());
+
         // Atualização no item
         item = itemRepo.save(item);
 
@@ -181,10 +191,13 @@ public class ItemService {
                 est.getSaldo(),
                 est.getReservado(),
                 est.getPontoReposicao(),
+
+                item.getEstoqueMinimo(), // ✅ agora vai pro front
+
                 item.getCustoUnitario(),
 
                 item.isAtivo(),
-                calcularAlerta(est.getSaldo(), est.getPontoReposicao()),
+                calcularAlerta(est.getSaldo(), item.getEstoqueMinimo(), est.getPontoReposicao()),
 
                 item.getFornecedor(),
                 item.getLocalizacao(),
@@ -192,15 +205,18 @@ public class ItemService {
 
                 item.getUltimaAtualizacao()
         );
-
     }
 
-    public String calcularAlerta(Double saldo, Double ponto) {
-        if (saldo == null || ponto == null) return "DESCONHECIDO";
-        if (saldo <= 1) return "CRÍTICO";
-        if (saldo <= 3) return "ALTO";
-        if (saldo <= 5) return "ATENÇÃO";
-        if (saldo <= ponto) return "ABAIXO DO PONTO";
+    // ✅ alerta sem hardcode e respeitando estoque mínimo real
+    public String calcularAlerta(Double saldo, Integer estoqueMinimo, Double pontoReposicao) {
+        if (saldo == null) return "DESCONHECIDO";
+
+        if (saldo <= 0) return "CRÍTICO";
+
+        if (estoqueMinimo != null && saldo < estoqueMinimo) return "ATENÇÃO";
+
+        if (pontoReposicao != null && saldo <= pontoReposicao) return "ABAIXO DO PONTO";
+
         return "OK";
     }
 }

@@ -18,7 +18,9 @@ public record ItemResponseDTO(
         Double saldo,
         Double reservado,
         Double pontoReposicao,
+        Integer estoqueMinimo,
         Double custoUnitario,
+
 
         // Status
         boolean ativo,

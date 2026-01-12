@@ -54,4 +54,9 @@ public class Item {
     private void atualizarData() {
         this.ultimaAtualizacao = LocalDateTime.now();
     }
+
+    @PositiveOrZero
+    @Column(name = "estoque_minimo", nullable = false)
+    private Integer estoqueMinimo = 0;
+
 }

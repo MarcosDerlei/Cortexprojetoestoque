@@ -15,6 +15,7 @@ public record ItemRequestDTO(
         @PositiveOrZero Double quantidadeInicial,
         @PositiveOrZero Double pontoReposicao,
         @PositiveOrZero Double custoUnitario,
+        @PositiveOrZero Integer estoqueMinimo,
 
         String fornecedor,
         String localizacao,

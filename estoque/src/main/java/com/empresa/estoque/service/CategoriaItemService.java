@@ -26,6 +26,11 @@ public class CategoriaItemService {
                 .toList();
     }
 
+    public CategoriaItem buscarPorId(Long id) {
+        return repo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Categoria não encontrada"));
+    }
+
     public CategoriaItem atualizar(Long id, CategoriaItem categoriaAtualizada) {
         CategoriaItem existente = repo.findById(id)
                 .orElseThrow(() -> new RuntimeException("Categoria não encontrada"));

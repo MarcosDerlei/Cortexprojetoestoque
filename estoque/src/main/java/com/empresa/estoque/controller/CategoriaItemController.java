@@ -28,6 +28,11 @@ public class CategoriaItemController {
         return service.listarAtivos(); // ou todos
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<CategoriaItem> buscarPorId(@PathVariable Long id) {
+        return ResponseEntity.ok(service.buscarPorId(id));
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<CategoriaItem> atualizar(@PathVariable Long id,
                                                    @RequestBody @Valid CategoriaItem categoriaAtualizada) {

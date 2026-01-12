@@ -12,6 +12,7 @@ public record ItemUpdateDTO(
 
         @PositiveOrZero Double custoUnitario,
         @PositiveOrZero Double pontoReposicao,
+        @PositiveOrZero Integer estoqueMinimo,
 
         Boolean ativo,
 
