@@ -1,5 +1,6 @@
 package com.empresa.estoque.repository;
 
+import com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaDoubleDTO;
 import com.empresa.estoque.model.Item;
 import com.empresa.estoque.model.MovimentoEstoque;
 import com.empresa.estoque.model.TipoMovimento;
@@ -167,15 +168,16 @@ public interface MovimentoEstoqueRepository extends JpaRepository<MovimentoEstoq
             @Param("inicio") LocalDateTime inicio
     );
     @Query("""
-    SELECT COALESCE(SUM(m.quantidade), 0)
+    SELECT new com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaDoubleDTO(
+        m.item.categoria.id,
+        COALESCE(SUM(m.quantidade), 0)
+    )
     FROM MovimentoEstoque m
-    WHERE m.item.categoria.id = :categoriaId
-      AND m.tipo = 'SAIDA'
+    WHERE m.tipo = 'SAIDA'
       AND m.dataMovimento >= :inicio
+    GROUP BY m.item.categoria.id
 """)
-    Double somarSaidasPorCategoriaNoPeriodo(
-            @Param("categoriaId") Long categoriaId,
-            @Param("inicio") LocalDateTime inicio
-    );
+    List<CategoriaDoubleDTO> somarSaidasPorCategoriaNoPeriodoBatch(@Param("inicio") LocalDateTime inicio);
+
 
 }

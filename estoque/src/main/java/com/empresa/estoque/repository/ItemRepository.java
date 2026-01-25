@@ -1,7 +1,9 @@
 package com.empresa.estoque.repository;
 
+import com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaLongCountDTO;
 import com.empresa.estoque.model.Item;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +23,16 @@ public interface ItemRepository extends JpaRepository<Item,Long> {
     List<Item> findByCategoriaId(Long categoriaId);
 
     List<Item> findBySubcategoriaId(Long subcategoriaId);
+
+    @Query("""
+    SELECT new com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaLongCountDTO(
+        i.categoria.id,
+        COUNT(i.id)
+    )
+    FROM Item i
+    GROUP BY i.categoria.id
+""")
+    List<CategoriaLongCountDTO> contarItensPorCategoria();
 }
 
 

@@ -1,11 +1,14 @@
 package com.empresa.estoque.dashboardCategorias.service;
 
 import com.empresa.estoque.dashboardCategorias.dto.CategoriaDashboardDTO;
+import com.empresa.estoque.dashboardCategorias.dto.DashboardCategoriasResponseDTO;
 import com.empresa.estoque.dashboardCategorias.dto.DashboardResumoDTO;
+import com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaBigDecimalDTO;
+import com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaDoubleDTO;
+import com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaLongCountDTO;
 import com.empresa.estoque.dashboardCategorias.enums.GiroEstoque;
 import com.empresa.estoque.dashboardCategorias.enums.StatusCategoria;
 import com.empresa.estoque.model.CategoriaItem;
-import com.empresa.estoque.model.MovimentoEstoque;
 import com.empresa.estoque.model.TipoMovimento;
 import com.empresa.estoque.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -14,7 +17,8 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -25,134 +29,113 @@ public class DashboardCategoriaService {
     private final ItemRepository itemRepository;
     private final MovimentoEstoqueRepository movimentoRepository;
     private final EstoqueRepository estoqueRepository;
-    private final CategoriaAnalyticsService analyticsService;
 
-    public List<CategoriaDashboardDTO> listarCategorias() {
-        return categoriaItemRepository.findAll().stream()
-                .map(this::montarCategoriaDashboard)
-                .toList();
-    }
+    public DashboardCategoriasResponseDTO carregarDashboard() {
 
-    public DashboardResumoDTO gerarResumo() {
+        LocalDateTime inicio30d = LocalDateTime.now().minusDays(30);
 
-        Integer totalCategorias = Math.toIntExact(categoriaItemRepository.count());
-
-        Integer categoriasCriticas = (int) categoriaItemRepository.findAll().stream()
-                .filter(categoria ->
-                        calcularStatusPorSubcategorias(categoria.getId()) == StatusCategoria.CRITICO
-                )
-                .count();
-
-        BigDecimal valorTotalEstoque =
-                estoqueRepository.calcularValorTotalEstoque();
-
-        if (valorTotalEstoque == null) {
-            valorTotalEstoque = BigDecimal.ZERO;
+        List<CategoriaItem> categorias = categoriaItemRepository.findAll();
+        if (categorias.isEmpty()) {
+            return new DashboardCategoriasResponseDTO(
+                    new DashboardResumoDTO(0, 0, BigDecimal.ZERO, "Sem consumo"),
+                    List.of()
+            );
         }
 
+        // ======================
+        // ✅ BATCH QUERIES
+        // ======================
+
+        Map<Long, Long> totalItensMap = itemRepository.contarItensPorCategoria().stream()
+                .collect(Collectors.toMap(CategoriaLongCountDTO::categoriaId, CategoriaLongCountDTO::total));
+
+        Map<Long, BigDecimal> valorCategoriaMap = estoqueRepository.valorEstoquePorCategoriaBatch().stream()
+                .collect(Collectors.toMap(CategoriaBigDecimalDTO::categoriaId, CategoriaBigDecimalDTO::total));
+
+        Map<Long, Long> abaixoMinimoMap = estoqueRepository.abaixoMinimoPorCategoriaBatch().stream()
+                .collect(Collectors.toMap(CategoriaLongCountDTO::categoriaId, CategoriaLongCountDTO::total));
+
+        Map<Long, Double> saldoCategoriaMap = estoqueRepository.somarSaldoPorCategoriaBatch().stream()
+                .collect(Collectors.toMap(CategoriaDoubleDTO::categoriaId, CategoriaDoubleDTO::total));
+
+        Map<Long, Double> consumoCategoriaMap = movimentoRepository.somarSaidasPorCategoriaNoPeriodoBatch(inicio30d).stream()
+                .collect(Collectors.toMap(CategoriaDoubleDTO::categoriaId, CategoriaDoubleDTO::total));
+
+        Set<Long> categoriasCriticas = new HashSet<>(subcategoriaItemRepository.buscarCategoriasCriticasIds());
+        Set<Long> categoriasAtencao = new HashSet<>(subcategoriaItemRepository.buscarCategoriasAtencaoIds());
+
+        // ======================
+        // ✅ RESUMO
+        // ======================
+
+        Integer totalCategorias = categorias.size();
+        Integer categoriasCriticasCount = categoriasCriticas.size();
+
+        BigDecimal valorTotalEstoque = estoqueRepository.calcularValorTotalEstoque();
+        if (valorTotalEstoque == null) valorTotalEstoque = BigDecimal.ZERO;
         valorTotalEstoque = valorTotalEstoque.setScale(2, RoundingMode.HALF_UP);
 
-        List<String> rankingConsumo =
-                movimentoRepository.categoriaMaiorConsumo(
-                        TipoMovimento.SAIDA,
-                        LocalDateTime.now().minusDays(30)
-                );
+        List<String> rankingConsumo = movimentoRepository.categoriaMaiorConsumo(
+                TipoMovimento.SAIDA,
+                inicio30d
+        );
 
-        String maiorConsumo30d =
-                rankingConsumo.isEmpty() ? "Sem consumo" : rankingConsumo.get(0);
+        String maiorConsumo30d = rankingConsumo.isEmpty() ? "Sem consumo" : rankingConsumo.get(0);
 
-        return new DashboardResumoDTO(
+        DashboardResumoDTO resumoDTO = new DashboardResumoDTO(
                 totalCategorias,
-                categoriasCriticas,
+                categoriasCriticasCount,
                 valorTotalEstoque,
                 maiorConsumo30d
         );
-    }
 
-    /**
-     * Regra principal:
-     * - se existir subcategoria CRITICO -> categoria CRITICO
-     * - senão se existir subcategoria ATENCAO -> categoria ATENCAO
-     * - senão NORMAL
-     */
-    private StatusCategoria calcularStatusPorSubcategorias(Long categoriaId) {
+        // ======================
+        // ✅ CARDS
+        // ======================
 
-        int subcategoriasCriticas =
-                subcategoriaItemRepository.buscarSubcategoriasCriticasIdsPorCategoria(categoriaId).size();
+        List<CategoriaDashboardDTO> cards = categorias.stream().map(categoria -> {
 
-        if (subcategoriasCriticas > 0) {
-            return StatusCategoria.CRITICO;
-        }
+            Long categoriaId = categoria.getId();
 
-        int subcategoriasAtencao =
-                subcategoriaItemRepository.buscarSubcategoriasAtencaoIdsPorCategoria(categoriaId).size();
+            Integer totalItens = totalItensMap.getOrDefault(categoriaId, 0L).intValue();
 
-        if (subcategoriasAtencao > 0) {
-            return StatusCategoria.ATENCAO;
-        }
+            BigDecimal valorCategoria = valorCategoriaMap.getOrDefault(categoriaId, BigDecimal.ZERO)
+                    .setScale(2, RoundingMode.HALF_UP);
 
-        return StatusCategoria.NORMAL;
-    }
+            Integer abaixoMinimo = abaixoMinimoMap.getOrDefault(categoriaId, 0L).intValue();
 
-    private CategoriaDashboardDTO montarCategoriaDashboard(CategoriaItem categoria) {
+            StatusCategoria status;
+            if (categoriasCriticas.contains(categoriaId)) status = StatusCategoria.CRITICO;
+            else if (categoriasAtencao.contains(categoriaId)) status = StatusCategoria.ATENCAO;
+            else status = StatusCategoria.NORMAL;
 
-        Long categoriaId = categoria.getId();
-        LocalDateTime inicio30d = LocalDateTime.now().minusDays(30);
+            Double consumo30d = consumoCategoriaMap.getOrDefault(categoriaId, 0.0);
+            Double saldoAtual = saldoCategoriaMap.getOrDefault(categoriaId, 0.0);
 
-        Integer totalItens =
-                itemRepository.countByCategoriaId(categoriaId);
+            GiroEstoque giro;
+            if (consumo30d >= 100) giro = GiroEstoque.ALTO;
+            else if (consumo30d >= 30) giro = GiroEstoque.MEDIO;
+            else giro = GiroEstoque.BAIXO;
 
-        BigDecimal valorCategoria =
-                estoqueRepository.calcularValorEstoquePorCategoria(categoriaId);
+            BigDecimal variacao30d = BigDecimal.ZERO;
+            if (saldoAtual > 0 && consumo30d > 0) {
+                variacao30d = BigDecimal.valueOf((consumo30d / saldoAtual) * 100.0)
+                        .setScale(0, RoundingMode.HALF_UP);
+            }
 
-        if (valorCategoria == null) {
-            valorCategoria = BigDecimal.ZERO;
-        }
+            return new CategoriaDashboardDTO(
+                    categoriaId,
+                    categoria.getNome(),
+                    totalItens,
+                    valorCategoria,
+                    abaixoMinimo,
+                    status,
+                    giro,
+                    variacao30d
+            );
 
-        valorCategoria = valorCategoria.setScale(2, RoundingMode.HALF_UP);
+        }).toList();
 
-        Integer abaixoMinimo =
-                estoqueRepository.contarItensAbaixoMinimoPorCategoria(categoriaId);
-
-        // ✅ status agora vem das subcategorias
-        StatusCategoria status =
-                calcularStatusPorSubcategorias(categoriaId);
-
-        List<MovimentoEstoque> movimentos =
-                movimentoRepository.findMovimentosPorCategoriaEPeriodo(
-                        categoriaId,
-                        TipoMovimento.SAIDA,
-                        inicio30d
-                );
-
-        GiroEstoque giro =
-                analyticsService.calcularGiro(movimentos);
-
-        Double consumo30d =
-                movimentoRepository.somarSaidasPorCategoriaNoPeriodo(
-                        categoriaId,
-                        inicio30d
-                );
-
-        Double saldoAtual =
-                estoqueRepository.somarSaldoPorCategoria(categoriaId);
-
-        BigDecimal variacao30d = BigDecimal.ZERO;
-
-        if (saldoAtual != null && saldoAtual > 0 && consumo30d != null && consumo30d > 0) {
-            variacao30d = BigDecimal.valueOf((consumo30d / saldoAtual) * 100.0)
-                    .setScale(0, RoundingMode.HALF_UP);
-        }
-
-        return new CategoriaDashboardDTO(
-                categoria.getId(),
-                categoria.getNome(),
-                totalItens,
-                valorCategoria,
-                abaixoMinimo != null ? abaixoMinimo : 0,
-                status,
-                giro,
-                variacao30d
-        );
+        return new DashboardCategoriasResponseDTO(resumoDTO, cards);
     }
 }

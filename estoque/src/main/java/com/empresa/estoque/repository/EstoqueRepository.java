@@ -1,5 +1,10 @@
 package com.empresa.estoque.repository;
 
+import com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaBigDecimalDTO;
+import com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaDoubleDTO;
+import com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaLongCountDTO;
+import com.empresa.estoque.dashboardSubcategorias.dto.projection.SubcategoriaBigDecimalDTO;
+import com.empresa.estoque.dashboardSubcategorias.dto.projection.SubcategoriaLongCountDTO;
 import com.empresa.estoque.model.Estoque;
 import com.empresa.estoque.model.Item;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -26,11 +31,15 @@ public interface EstoqueRepository extends JpaRepository<Estoque, Long> {
      * Soma do saldo total da categoria (quantidade)
      */
     @Query("""
-        SELECT COALESCE(SUM(e.saldo), 0)
-        FROM Estoque e
-        WHERE e.item.categoria.id = :categoriaId
-    """)
-    Double somarSaldoPorCategoria(@Param("categoriaId") Long categoriaId);
+    SELECT new com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaDoubleDTO(
+        e.item.categoria.id,
+        COALESCE(SUM(e.saldo), 0)
+    )
+    FROM Estoque e
+    GROUP BY e.item.categoria.id
+""")
+    List<CategoriaDoubleDTO> somarSaldoPorCategoriaBatch();
+
 
     /**
      * Valor total do estoque (R$)
@@ -47,45 +56,73 @@ public interface EstoqueRepository extends JpaRepository<Estoque, Long> {
      * Valor do estoque por categoria (R$)
      */
     @Query("""
-        SELECT COALESCE(SUM(e.saldo * i.custoUnitario), 0)
-        FROM Estoque e
-        JOIN e.item i
-        WHERE i.categoria.id = :categoriaId
-          AND e.saldo > 0
-    """)
-    BigDecimal calcularValorEstoquePorCategoria(@Param("categoriaId") Long categoriaId);
+    SELECT new com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaBigDecimalDTO(
+        i.categoria.id,
+        COALESCE(
+            SUM(
+                CAST(e.saldo AS bigdecimal) * CAST(i.custoUnitario AS bigdecimal)
+            ),
+            0
+        )
+    )
+    FROM Estoque e
+    JOIN e.item i
+    WHERE e.saldo > 0
+    GROUP BY i.categoria.id
+""")
+    List<CategoriaBigDecimalDTO> valorEstoquePorCategoriaBatch();
+
+
 
     /**
      * Valor do estoque por subcategoria (R$)
      */
-    @Query("""
-        SELECT COALESCE(SUM(e.saldo * i.custoUnitario), 0)
-        FROM Estoque e
-        JOIN e.item i
-        WHERE i.subcategoria.id = :subcategoriaId
-          AND e.saldo > 0
-    """)
-    BigDecimal calcularValorEstoquePorSubcategoria(@Param("subcategoriaId") Long subcategoriaId);
+    @Query(value = """
+    SELECT
+        i.subcategoria_id AS subcategoriaId,
+        COALESCE(
+            SUM(
+                CAST(e.saldo AS numeric) * CAST(i.custo_unitario AS numeric)
+            ),
+            0
+        ) AS valor
+    FROM estoques e
+    JOIN itens i ON i.id = e.item_id
+    WHERE i.categoria_id = :categoriaId
+      AND e.saldo > 0
+    GROUP BY i.subcategoria_id
+""", nativeQuery = true)
+    List<SubcategoriaBigDecimalDTO> valorEstoquePorSubcategoriaBatch(
+            @Param("categoriaId") Long categoriaId
+    );
 
     // ✅ ABAIXO DO MÍNIMO (ATENÇÃO):
     // saldo > 0 e menor que o mínimo do item
-    @Query("""
-        SELECT COUNT(e.id)
-        FROM Estoque e
-        WHERE e.item.categoria.id = :categoriaId
-          AND e.saldo > 0
-          AND e.saldo < e.item.estoqueMinimo
-    """)
-    Integer contarItensAbaixoMinimoPorCategoria(@Param("categoriaId") Long categoriaId);
 
     @Query("""
-        SELECT COUNT(e.id)
-        FROM Estoque e
-        WHERE e.item.subcategoria.id = :subcategoriaId
-          AND e.saldo > 0
-          AND e.saldo < e.item.estoqueMinimo
-    """)
-    Integer contarItensAbaixoMinimoPorSubcategoria(@Param("subcategoriaId") Long subcategoriaId);
+    SELECT new com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaLongCountDTO(
+        e.item.categoria.id,
+        COUNT(e.id)
+    )
+    FROM Estoque e
+    WHERE e.saldo > 0
+      AND e.saldo < e.item.estoqueMinimo
+    GROUP BY e.item.categoria.id
+""")
+    List<CategoriaLongCountDTO> abaixoMinimoPorCategoriaBatch();
+
+    @Query("""
+    SELECT new com.empresa.estoque.dashboardSubcategorias.dto.projection.SubcategoriaLongCountDTO(
+        e.item.subcategoria.id,
+        COUNT(e.id)
+    )
+    FROM Estoque e
+    WHERE e.item.categoria.id = :categoriaId
+      AND e.saldo > 0
+      AND e.saldo < e.item.estoqueMinimo
+    GROUP BY e.item.subcategoria.id
+""")
+    List<SubcategoriaLongCountDTO> abaixoMinimoPorSubcategoriaBatch(@Param("categoriaId") Long categoriaId);
 
     // ✅ ITENS CRÍTICOS:
     // saldo <= 0
@@ -98,11 +135,15 @@ public interface EstoqueRepository extends JpaRepository<Estoque, Long> {
     Integer contarItensCriticosPorCategoria(@Param("categoriaId") Long categoriaId);
 
     @Query("""
-        SELECT COUNT(e.id)
-        FROM Estoque e
-        WHERE e.item.subcategoria.id = :subcategoriaId
-          AND e.saldo <= 0
-    """)
-    Integer contarItensCriticosPorSubcategoria(@Param("subcategoriaId") Long subcategoriaId);
+    SELECT new com.empresa.estoque.dashboardSubcategorias.dto.projection.SubcategoriaLongCountDTO(
+        e.item.subcategoria.id,
+        COUNT(e.id)
+    )
+    FROM Estoque e
+    WHERE e.item.categoria.id = :categoriaId
+      AND e.saldo <= 0
+    GROUP BY e.item.subcategoria.id
+""")
+    List<SubcategoriaLongCountDTO> criticosPorSubcategoriaBatch(@Param("categoriaId") Long categoriaId);
 
 }
