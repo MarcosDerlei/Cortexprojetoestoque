@@ -42,7 +42,7 @@ public class PedidoCompraService {
     @Transactional(readOnly = true)
     public PedidoCompraResponseDTO obterCarrinho(User user) {
 
-        PedidoCompra carrinho = obterOuCriarCarrinho(user); // ✅ pode inserir se não existir
+        PedidoCompra carrinho = obterOuCriarCarrinho(user);
 
         List<PedidoCompraItem> itens = pedidoCompraItemRepository.findByPedidoCompraId(carrinho.getId());
 
@@ -75,7 +75,11 @@ public class PedidoCompraService {
 
                             quantidade,
                             preco,
-                            subtotal
+                            subtotal,
+
+                            // ✅ NOVO: status de envio
+                            i.getStatusEnvio(),
+                            i.getDataEnvio()
                     );
                 })
                 .toList();
@@ -103,11 +107,9 @@ public class PedidoCompraService {
         ItemFornecedor itemFornecedor = itemFornecedorRepository.findById(dto.itemFornecedorId())
                 .orElseThrow(() -> new RuntimeException("ItemFornecedor não encontrado"));
 
-        // ✅ padroniza quantidade
         BigDecimal quantidade = dto.quantidade()
                 .setScale(2, RoundingMode.HALF_UP);
 
-        // ✅ padroniza preço no momento
         BigDecimal preco = itemFornecedor.getPrecoReferencia()
                 .setScale(2, RoundingMode.HALF_UP);
 
@@ -122,8 +124,6 @@ public class PedidoCompraService {
                     .setScale(2, RoundingMode.HALF_UP);
 
             existente.setQuantidade(novaQuantidade);
-
-            // ✅ garante que o preço salvo também está padronizado
             existente.setPrecoNoMomento(preco);
 
             pedidoCompraItemRepository.save(existente);
@@ -135,6 +135,7 @@ public class PedidoCompraService {
                 .itemFornecedor(itemFornecedor)
                 .quantidade(quantidade)
                 .precoNoMomento(preco)
+                .dataEnvio(null) // ✅ Inicia como RASCUNHO
                 .build();
 
         pedidoCompraItemRepository.save(novo);
@@ -170,5 +171,83 @@ public class PedidoCompraService {
         carrinho.setStatus(StatusPedidoCompra.ENVIADO);
         carrinho.setDataEnvio(LocalDateTime.now());
         pedidoCompraRepository.save(carrinho);
+    }
+
+    // ========================================================================
+    // ✅ NOVOS MÉTODOS: Gerenciamento de status por fornecedor
+    // ========================================================================
+
+    /**
+     * Marca todos os itens de um fornecedor como ENVIADO
+     * POST /compras/carrinho/enviar/{fornecedorId}
+     */
+    @Transactional
+    public void marcarComoEnviado(User user, Long fornecedorId) {
+        PedidoCompra carrinho = obterOuCriarCarrinho(user);
+
+        List<PedidoCompraItem> itens = pedidoCompraItemRepository.findByPedidoCompraId(carrinho.getId());
+
+        List<PedidoCompraItem> itensFornecedor = itens.stream()
+                .filter(i -> i.getItemFornecedor().getFornecedor().getId().equals(fornecedorId))
+                .toList();
+
+        if (itensFornecedor.isEmpty()) {
+            throw new RuntimeException("Nenhum item encontrado para este fornecedor");
+        }
+
+        LocalDateTime agora = LocalDateTime.now();
+
+        for (PedidoCompraItem item : itensFornecedor) {
+            item.setDataEnvio(agora);
+            pedidoCompraItemRepository.save(item);
+        }
+    }
+
+    /**
+     * Volta os itens de um fornecedor para RASCUNHO (cancela envio)
+     * POST /compras/carrinho/cancelar-envio/{fornecedorId}
+     */
+    @Transactional
+    public void cancelarEnvio(User user, Long fornecedorId) {
+        PedidoCompra carrinho = obterOuCriarCarrinho(user);
+
+        List<PedidoCompraItem> itens = pedidoCompraItemRepository.findByPedidoCompraId(carrinho.getId());
+
+        List<PedidoCompraItem> itensFornecedor = itens.stream()
+                .filter(i -> i.getItemFornecedor().getFornecedor().getId().equals(fornecedorId))
+                .toList();
+
+        if (itensFornecedor.isEmpty()) {
+            throw new RuntimeException("Nenhum item encontrado para este fornecedor");
+        }
+
+        for (PedidoCompraItem item : itensFornecedor) {
+            item.setDataEnvio(null); // Volta para RASCUNHO
+            pedidoCompraItemRepository.save(item);
+        }
+    }
+
+    /**
+     * Confirma o recebimento do pedido e REMOVE os itens do fornecedor do carrinho
+     * POST /compras/carrinho/confirmar/{fornecedorId}
+     */
+    @Transactional
+    public void confirmarPedido(User user, Long fornecedorId) {
+        PedidoCompra carrinho = obterOuCriarCarrinho(user);
+
+        List<PedidoCompraItem> itens = pedidoCompraItemRepository.findByPedidoCompraId(carrinho.getId());
+
+        List<PedidoCompraItem> itensFornecedor = itens.stream()
+                .filter(i -> i.getItemFornecedor().getFornecedor().getId().equals(fornecedorId))
+                .toList();
+
+        if (itensFornecedor.isEmpty()) {
+            throw new RuntimeException("Nenhum item encontrado para este fornecedor");
+        }
+
+        // Remove todos os itens desse fornecedor
+        for (PedidoCompraItem item : itensFornecedor) {
+            pedidoCompraItemRepository.delete(item);
+        }
     }
 }

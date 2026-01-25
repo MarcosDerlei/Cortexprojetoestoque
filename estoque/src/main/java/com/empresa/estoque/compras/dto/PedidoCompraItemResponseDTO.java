@@ -1,6 +1,7 @@
 package com.empresa.estoque.compras.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 public record PedidoCompraItemResponseDTO(
         Long id,
@@ -15,5 +16,9 @@ public record PedidoCompraItemResponseDTO(
 
         BigDecimal quantidade,
         BigDecimal preco,
-        BigDecimal subtotal
+        BigDecimal subtotal,
+
+        // NOVO: Status de envio do item
+        String statusEnvio,      // "RASCUNHO" ou "ENVIADO"
+        LocalDateTime dataEnvio  // null se não enviado
 ) {}

@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Positive;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "pedido_compra_item")
@@ -32,4 +33,18 @@ public class PedidoCompraItem {
 
     @Column(name = "preco_no_momento", nullable = false)
     private BigDecimal precoNoMomento = BigDecimal.ZERO;
+
+    // ✅ NOVO: Data de envio do pedido (null = RASCUNHO, preenchido = ENVIADO)
+    @Column(name = "data_envio")
+    private LocalDateTime dataEnvio;
+
+    // ✅ Helper method para verificar se foi enviado
+    public boolean isEnviado() {
+        return dataEnvio != null;
+    }
+
+    // ✅ Helper method para obter status como string
+    public String getStatusEnvio() {
+        return dataEnvio != null ? "ENVIADO" : "RASCUNHO";
+    }
 }
