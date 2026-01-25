@@ -1,6 +1,7 @@
 package com.empresa.estoque.repository;
 
 import com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaDoubleDTO;
+import com.empresa.estoque.dashboardSubcategorias.dto.projection.SubcategoriaDoubleDTO;
 import com.empresa.estoque.model.Item;
 import com.empresa.estoque.model.MovimentoEstoque;
 import com.empresa.estoque.model.TipoMovimento;
@@ -167,6 +168,11 @@ public interface MovimentoEstoqueRepository extends JpaRepository<MovimentoEstoq
             @Param("tipo") TipoMovimento tipo,
             @Param("inicio") LocalDateTime inicio
     );
+
+    // ========================
+    // BATCH QUERIES (OTIMIZAÇÃO)
+    // ========================
+
     @Query("""
     SELECT new com.empresa.estoque.dashboardCategorias.dto.projection.CategoriaDoubleDTO(
         m.item.categoria.id,
@@ -179,5 +185,20 @@ public interface MovimentoEstoqueRepository extends JpaRepository<MovimentoEstoq
 """)
     List<CategoriaDoubleDTO> somarSaidasPorCategoriaNoPeriodoBatch(@Param("inicio") LocalDateTime inicio);
 
-
+    // ✅ NOVO: Batch query para somar saídas por SUBCATEGORIA (evita N+1)
+    @Query("""
+    SELECT new com.empresa.estoque.dashboardSubcategorias.dto.projection.SubcategoriaDoubleDTO(
+        m.item.subcategoria.id,
+        COALESCE(SUM(m.quantidade), 0.0)
+    )
+    FROM MovimentoEstoque m
+    WHERE m.item.categoria.id = :categoriaId
+      AND m.tipo = 'SAIDA'
+      AND m.dataMovimento >= :inicio
+    GROUP BY m.item.subcategoria.id
+""")
+    List<SubcategoriaDoubleDTO> somarSaidasPorSubcategoriaNoPeriodoBatch(
+            @Param("categoriaId") Long categoriaId,
+            @Param("inicio") LocalDateTime inicio
+    );
 }
